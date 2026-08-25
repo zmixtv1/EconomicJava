@@ -1,0 +1,40 @@
+# Caddy na VPS: HTTPS automático (Let's Encrypt) na frente da API.
+#
+# Isto resolve o problema que trava todo mundo: o front na Vercel roda em HTTPS,
+# e o navegador BLOQUEIA chamadas de uma página HTTPS para um endereço HTTP.
+# Sem um domínio com certificado, o app simplesmente não funciona em produção.
+#
+# Uso na VPS:
+#   1. aponte um registro A do seu domínio para o IP da Vultr
+#   2. sudo apt install caddy
+#   3. copie este arquivo para /etc/caddy/Caddyfile (trocando o domínio)
+#   4. sudo systemctl reload caddy
+
+api.seu-dominio.com.br {
+	reverse_proxy 127.0.0.1:8080
+
+	encode gzip
+
+	header {
+		# HSTS: o navegador passa a recusar HTTP para este domínio.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+
+		# Este domínio só devolve JSON. Se um dia alguma resposta escapar como
+		# HTML, esta política impede que ela carregue ou execute qualquer coisa.
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+		Cross-Origin-Resource-Policy "same-site"
+
+		# Não anuncia servidor nem versão para quem está mapeando alvos.
+		-Server
+		-X-Powered-By
+	}
+
+	log {
+		output file /var/log/caddy/api.log
+		format json
+	}
+}

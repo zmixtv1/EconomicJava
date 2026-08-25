@@ -1,0 +1,94 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-despesas}
+      POSTGRES_USER: ${DATABASE_USER:-despesas}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?defina DATABASE_PASSWORD no .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    # Sem porta publicada no host: a API fala com o banco pela rede interna do
+    # Compose, então expor 5432 só ampliaria a superfície de ataque para
+    # qualquer processo ou usuário da VPS. Para abrir um psql:
+    #   docker compose exec db psql -U despesas -d despesas
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # O Postgres precisa destas para preparar o diretório de dados no primeiro boot.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DATABASE_USER:-despesas} -d ${DATABASE_NAME:-despesas}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caixa de e-mail falsa para desenvolvimento: recebe tudo que a API envia e
+  # mostra em http://localhost:8025. Nada sai para a internet.
+  # Em produção este serviço não sobe — use SMTP_HOST do provedor real.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8025:8025'
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # A chave do JWT vem de um arquivo lido em formato bruto: se ela tiver um $,
+    # a interpolação do Compose comeria parte do valor e todos os tokens ficariam
+    # inválidos — sem nenhum erro visível no boot.
+    env_file:
+      - path: .env.secrets
+        format: raw
+
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/${DATABASE_NAME:-despesas}
+      DATABASE_USER: ${DATABASE_USER:-despesas}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?defina DATABASE_PASSWORD no .env}
+      CORS_ORIGENS: ${CORS_ORIGENS:?defina CORS_ORIGENS no .env}
+
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_AUTH: ${SMTP_AUTH:-false}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-Controle de Despesas <nao-responda@localhost>}
+      URL_DO_APP: ${URL_DO_APP:-http://localhost:5173}
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+
+    # A aplicação já roda como usuário não-root; isto impede que qualquer
+    # binário dentro do contêiner recupere privilégio via setuid.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # Quem fala com a internet é o Caddy, que faz o HTTPS e repassa para cá.
+    ports:
+      - '127.0.0.1:8080:8080'
+
+volumes:
+  postgres-data:

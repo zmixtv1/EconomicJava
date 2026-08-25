@@ -1,0 +1,35 @@
+# Ajustes para rodar no Raspberry Pi 4 (4 GB).
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.pi.yml up -d --build
+#
+# O que este arquivo faz:
+#   1. Põe teto de memória em cada serviço. Sem isso a JVM olha a RAM da
+#      máquina inteira e se acha dona de 3 GB, sufocando o Postgres.
+#   2. Desliga o Mailpit, que é ferramenta de desenvolvimento.
+#   3. Limita os logs, que em cartão SD são desgaste silencioso.
+
+services:
+  db:
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  api:
+    # 1 GB de teto: com MaxRAMPercentage=75 do Dockerfile, a JVM fica com
+    # ~768 MB de heap. Sobra folga para o Postgres e para o cache do sistema.
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  # O Mailpit não sobe no Pi: em produção o SMTP é o do provedor real.
+  # `replicas: 0` desliga sem precisar remover o serviço do arquivo base.
+  mailpit:
+    deploy:
+      replicas: 0
