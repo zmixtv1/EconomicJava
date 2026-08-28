@@ -34,9 +34,19 @@ services:
 
   # Caixa de e-mail falsa para desenvolvimento: recebe tudo que a API envia e
   # mostra em http://localhost:8025. Nada sai para a internet.
-  # Em produção este serviço não sobe — use SMTP_HOST do provedor real.
+  #
+  # O `profiles` é o que impede este serviço de subir em produção. Antes só um
+  # comentário dizia que ele não subia, e comentário não é obrigado a ser
+  # verdade: `docker compose up` levantava o Mailpit em qualquer lugar. Com o
+  # SMTP_HOST apontando para cá, os e-mails de confirmação e de recuperação
+  # ficariam presos numa caixa local, sem erro nenhum no log — e como o cadastro
+  # exige confirmação, ninguém conseguiria criar conta.
+  #
+  # Em desenvolvimento ele continua subindo sozinho: o .env local define
+  # COMPOSE_PROFILES=dev. O .env de produção não tem essa linha.
   mailpit:
     image: axllent/mailpit:latest
+    profiles: ['dev']
     restart: unless-stopped
     ports:
       - '127.0.0.1:8025:8025'
@@ -69,11 +79,17 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?defina DATABASE_PASSWORD no .env}
       CORS_ORIGENS: ${CORS_ORIGENS:?defina CORS_ORIGENS no .env}
 
-      SMTP_HOST: ${SMTP_HOST:-mailpit}
-      SMTP_PORT: ${SMTP_PORT:-1025}
+      # Sem padrão: esquecer esta variável em produção passava a valer
+      # "mailpit" e o envio morria em silêncio. Agora o Compose se recusa a
+      # subir e diz o porquê.
+      SMTP_HOST: ${SMTP_HOST:?defina SMTP_HOST no .env (em desenvolvimento use "mailpit")}
+      SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USUARIO: ${SMTP_USUARIO:-}
-      SMTP_AUTH: ${SMTP_AUTH:-false}
-      SMTP_TLS: ${SMTP_TLS:-false}
+      # Os padrões aqui são os de produção, e o .env de desenvolvimento é que
+      # desliga os dois. Ao contrário, um deploy que esquecesse estas variáveis
+      # mandaria a senha do SMTP em texto puro pela internet.
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_TLS: ${SMTP_TLS:-true}
       EMAIL_REMETENTE: ${EMAIL_REMETENTE:-Controle de Despesas <nao-responda@localhost>}
       URL_DO_APP: ${URL_DO_APP:-http://localhost:5173}
 

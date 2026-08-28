@@ -1,40 +1,129 @@
-# Caddy na VPS: HTTPS automático (Let's Encrypt) na frente da API.
+# Caddy como porta de entrada dos projetos.
 #
-# Isto resolve o problema que trava todo mundo: o front na Vercel roda em HTTPS,
-# e o navegador BLOQUEIA chamadas de uma página HTTPS para um endereço HTTP.
-# Sem um domínio com certificado, o app simplesmente não funciona em produção.
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
 #
-# Uso na VPS:
-#   1. aponte um registro A do seu domínio para o IP da Vultr
-#   2. sudo apt install caddy
-#   3. copie este arquivo para /etc/caddy/Caddyfile (trocando o domínio)
-#   4. sudo systemctl reload caddy
+# ---------------------------------------------------------------------------
+# HTTPS: escolha uma das duas rotas
+# ---------------------------------------------------------------------------
+#
+# ROTA A — atrás de um túnel (Cloudflare Tunnel ou Tailscale)
+#   É como está agora: os endereços começam com `http://`, e o Caddy atende em
+#   HTTP na rede interna. Quem entrega o HTTPS é o túnel. Necessário quando sua
+#   operadora usa CGNAT, que é o caso da maioria no Brasil.
+#
+# ROTA B — IP público, com as portas 80 e 443 abertas no roteador
+#   Troque `http://` por `https://` nos endereços abaixo, descomente o bloco
+#   `email` e publique as portas 80 e 443 no docker-compose.caddy.yml. O Caddy
+#   pega e renova o certificado Let's Encrypt sozinho, sem mais nada.
+#
+#   Não mexa no bloco `:80` de recusa: testado com CA local, quem digitar
+#   http://seu-dominio continua recebendo 308 para https://. O Caddy monta esse
+#   redirecionamento na inicialização e ele é mais específico que o curinga, que
+#   fica só com os domínios desconhecidos. Do lado do 443 a recusa é ainda mais
+#   cedo — sem certificado emitido para o domínio, o aperto de mão TLS nem
+#   completa.
+{
+	# Descomente na ROTA B: o Let's Encrypt usa este endereço para avisar
+	# sobre problemas de renovação.
+	# email seu-email@exemplo.com
 
-api.seu-dominio.com.br {
-	reverse_proxy 127.0.0.1:8080
+	# Desliga a API de administração. Em troca, `caddy reload` deixa de
+	# funcionar: para aplicar mudanças neste arquivo, reinicie o contêiner
+	# (`docker compose restart caddy`). Leva cerca de um segundo.
+	admin off
 
-	encode gzip
+	servers {
+		# Equivale ao `set_real_ip_from` do Nginx: sem isto, o Caddy ignora o
+		# X-Forwarded-For e toda requisição vinda do túnel chega com o IP do
+		# túnel. O limitador de tentativas da API conta por IP — a primeira
+		# pessoa a errar a senha bloquearia todas as outras.
+		trusted_proxies static private_ranges
+	}
+}
 
+# ---------------------------------------------------------------------------
+# Cabeçalhos de segurança, compartilhados entre os sites
+# ---------------------------------------------------------------------------
+# O `header` do Caddy substitui em vez de acrescentar, então não repete o que a
+# aplicação já envia. (No Nginx isso produzia "X-Frame-Options: DENY, DENY",
+# que é inválido e faz alguns navegadores ignorarem o cabeçalho inteiro.)
+(seguranca) {
 	header {
-		# HSTS: o navegador passa a recusar HTTP para este domínio.
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
-
-		# Este domínio só devolve JSON. Se um dia alguma resposta escapar como
-		# HTML, esta política impede que ela carregue ou execute qualquer coisa.
-		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
-		Cross-Origin-Resource-Policy "same-site"
-
-		# Não anuncia servidor nem versão para quem está mapeando alvos.
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		# Nada de anunciar qual servidor está rodando. O `Via` precisa sair
+		# junto: o reverse_proxy acrescenta "Via: 1.1 Caddy", que entrega a
+		# mesma informação pela porta dos fundos.
 		-Server
-		-X-Powered-By
-	}
-
-	log {
-		output file /var/log/caddy/api.log
-		format json
+		-Via
 	}
 }
+
+# ---------------------------------------------------------------------------
+# Padrão: recusar
+# ---------------------------------------------------------------------------
+# Sem este bloco, uma requisição com domínio que não casa com nenhum site não
+# chega na API — mas recebe um 200 vazio do próprio Caddy, com o cabeçalho
+# `Server: Caddy` junto. Ou seja: qualquer domínio que alguém apontar para o seu
+# IP responde "estou vivo" e entrega a marca do servidor. O `abort` fecha a
+# conexão sem responder nada.
+#
+# Os blocos abaixo têm domínio definido, e o Caddy sempre prefere a regra mais
+# específica — então este curinga só pega o que sobrou.
+:80 {
+	abort
+}
+
+# ===========================================================================
+# API — Controle de Despesas
+# ===========================================================================
+http://api.seu-dominio.com.br, http://localhost {
+	import seguranca
+
+	# Este domínio só devolve JSON. Se um dia alguma resposta escapar como
+	# HTML, esta política impede que ela carregue ou execute qualquer coisa.
+	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+	# O health check não precisa poluir o log.
+	@saude path /actuator/health*
+	log_skip @saude
+
+	# O reverse_proxy do Caddy já repassa X-Forwarded-For, -Proto e -Host, e
+	# resolve o nome na hora da requisição — ele sobe mesmo se a API ainda
+	# estiver iniciando.
+	reverse_proxy api:8080
+}
+
+# ===========================================================================
+# Front-end — arquivos estáticos do build do Vite
+#
+# Use se quiser servir o front daqui em vez da Vercel. Descomente o volume
+# correspondente no docker-compose.caddy.yml depois de rodar `npm run build`.
+# ===========================================================================
+http://app.seu-dominio.com.br {
+	import seguranca
+
+	root * /srv/app
+	encode gzip zstd
+
+	# Os arquivos com hash no nome nunca mudam de conteúdo.
+	@estaticos path /assets/*
+	header @estaticos Cache-Control "public, max-age=31536000, immutable"
+
+	# SPA: caminho desconhecido devolve o index.html, senão recarregar numa
+	# rota interna daria 404.
+	try_files {path} /index.html
+	file_server
+}
+
+# ===========================================================================
+# Modelo para os próximos projetos — descomente e ajuste
+# ===========================================================================
+# http://projeto2.seu-dominio.com.br {
+# 	import seguranca
+# 	reverse_proxy projeto2:3000
+# }

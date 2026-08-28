@@ -7,11 +7,14 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Segredos — nunca versionar
+# Segredos — nunca versionar.
+# A regra é ampla de propósito: qualquer .env novo (.env.producao, .env.vps...)
+# já nasce ignorado, em vez de depender de alguém lembrar de adicioná-lo aqui.
+# Só os exemplos, que não têm valor real dentro, voltam para o versionamento.
 .env
-.env.secrets
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.secrets.example
 
 # IDE / SO
 .idea/

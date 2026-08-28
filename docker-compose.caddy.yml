@@ -1,0 +1,43 @@
+# Caddy como porta de entrada, em contêiner.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      # ROTA A (túnel): só a interface local — quem fala com a internet é o túnel.
+      - '127.0.0.1:80:80'
+      # ROTA B (IP público): troque as duas linhas acima por estas, para o
+      # Let's Encrypt conseguir validar o domínio.
+      # - '80:80'
+      # - '443:443'
+      # - '443:443/udp'   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados e estado: sem este volume, o Caddy pede um certificado
+      # novo a cada reinício e bate no limite semanal do Let's Encrypt.
+      - caddy-dados:/data
+      - caddy-config:/config
+      # Descomente para servir o front daqui (rode `npm run build` antes):
+      # - ./frontend/dist:/srv/app:ro
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  api:
+    # Com o Caddy na frente, a API não precisa de porta publicada: os dois
+    # estão na mesma rede do Compose e conversam por nome.
+    ports: !reset []
+
+volumes:
+  caddy-dados:
+  caddy-config:

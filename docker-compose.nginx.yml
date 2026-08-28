@@ -1,0 +1,39 @@
+# Nginx como porta de entrada, no lugar do Caddy.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.nginx.yml up -d
+#
+# Diferença para o Caddy: o Nginx NÃO emite certificado sozinho. Ou você deixa
+# o HTTPS a cargo de um túnel (Cloudflare/Tailscale) e o Nginx atende só em
+# HTTP na rede interna, ou você usa o Certbot para gerar os certificados.
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      # Só na interface local: quem expõe para a internet é o túnel.
+      # Se for usar redirecionamento de porta no roteador, troque por
+      # "80:80" e "443:443".
+      - '127.0.0.1:80:80'
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      # Descomente para servir o front do próprio PC:
+      # - ./frontend/dist:/var/www/despesas:ro
+      # Descomente ao usar Certbot:
+      # - ./deploy/nginx/certs:/etc/letsencrypt:ro
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  api:
+    # Com o Nginx na frente, a API não precisa mais de porta publicada:
+    # os dois estão na mesma rede do Compose e conversam por nome.
+    ports: !reset []
