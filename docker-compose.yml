@@ -1,6 +1,9 @@
 services:
   db:
     image: postgres:17-alpine
+    # Medido: 55 MiB. A folga é para os buffers crescerem conforme a base
+    # aumenta, sem virar vizinho barulhento dos outros projetos.
+    mem_limit: 512m
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DATABASE_NAME:-despesas}
@@ -47,6 +50,7 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     profiles: ['dev']
+    mem_limit: 128m
     restart: unless-stopped
     ports:
       - '127.0.0.1:8025:8025'
@@ -62,6 +66,18 @@ services:
   api:
     build: ./backend
     restart: unless-stopped
+
+    # Medido em uso normal: 511 MiB. O limite existe porque o
+    # -XX:MaxRAMPercentage=75 do Dockerfile mede contra a RAM que a JVM
+    # enxerga — sem limite, ela enxerga a máquina inteira e se acha no direito
+    # de crescer o heap até 6 GB numa VPS de 8 GB, sufocando o Postgres. Com o
+    # limite, a JVM detecta o contêiner e dimensiona o heap contra 1,5 GB.
+    #
+    # Por que 1,5 GB e não 1 GB: 75% de 1 GB dá 768 MiB de heap, e ainda sobram
+    # metaspace, pilhas de thread e memória nativa por cima — passaria de 1 GB
+    # e o kernel mataria o processo. Aqui o teto fica em ~1,1 GB de heap com
+    # folga para o resto.
+    mem_limit: 1536m
     depends_on:
       db:
         condition: service_healthy

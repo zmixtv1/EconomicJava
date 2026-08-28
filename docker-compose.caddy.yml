@@ -7,6 +7,9 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Medido: 13 MiB. Ele é a porta de entrada de todos os projetos, então o
+    # limite serve para nenhum deles conseguir derrubá-la por consumo.
+    mem_limit: 128m
     depends_on:
       - api
     ports:
