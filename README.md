@@ -1,8 +1,21 @@
 # Controle de Despesas
+<br>
+
+### Importante!!!
+
+
+Este projeto foi desenvolvido durante meus estudos de Java com forte apoio de ferramentas de IA. O objetivo principal foi explorar a construção de uma aplicação full-stack e entender, na prática, como Java, Spring Boot, banco de dados e outras tecnologias se integram.
+
+Meu foco atual de estudos está nos fundamentos de Java, e as tecnologias mais avançadas utilizadas neste projeto foram exploradas como parte desse processo.
 
 Aplicação full-stack multiusuário para registrar despesas pessoais e acompanhar o total
 por período e por categoria. Cada pessoa cria sua conta e enxerga apenas os próprios dados.
 
+
+<br>
+<br>
+
+#
 | Camada | Tecnologia | Onde roda |
 |---|---|---|
 | Front-end | React 19 + TypeScript + Vite | Vercel |
